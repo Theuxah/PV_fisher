@@ -62,7 +62,6 @@ nbararray = []
 
 
 def ezinv(x):
-    Om = 1.0
     return 1.0 / np.sqrt(Om * (1.0 + x) * (1.0 + x) * (1.0 + x) + (1.0 - Om))
 
 def rz(red):
@@ -152,7 +151,8 @@ def read_nz():
                 if nsamp == 0:
                     zinarray[i] = tz
                 nbararray[nsamp][i] = 1.0e-6 * tnbar
-
+            print(zinarray)
+            
     if NRED[1] != NRED[0]:
         raise ValueError("The number of redshift bins for each sample must match")
 
@@ -200,27 +200,19 @@ def mu_integrand(mu, p):
     Ptt_spline = sc.interpolate.CubicSpline(zin, Ptt_array)
 
     dendamp = np.sqrt(1.0 / (1.0 + 0.5 * (k * k * mu * mu * sigma_g * sigma_g)))
-    veldamp = np.sin(k * sigma_u) / (k * sigma_u)
+    veldamp = np.sinc(k * sigma_u)
 
     result_sum = 0.0
     for i in range(NRED[0]):
 
         zval = zarray[i]
-        r_sum = 0.0
         r = rarray[i]
         deltar = deltararray[i]
 
         if zval < zminval:
             continue
-        if zval > zmaxval:
+        elif zval > zmaxval:
             break
-
-        dd_prefac=0.0
-        dv_prefac=0.0
-        vv_prefac=0.0
-        P_gg=0.0
-        P_ug=0.0
-        P_uu=0.0
 
         sigma8 = sigma80 * growtharray[i]
 
@@ -229,9 +221,9 @@ def mu_integrand(mu, p):
         Pmt = Pmt_spline(zval)
         Ptt = Ptt_spline(zval)
 
-        Omz = Om*ezinv(zval)**2*(1.0+zval)**3
+        Omz = Om*(ezinv(zval)**2)*(1.0+zval)**3
         f = Omz**gammaval
-        beta = f*beta0*growtharray[i]/Om**0.55
+        beta = f*beta0*growtharray[i]/(Om**0.55)
 
         vv_prefac  = 1.0e2*f*mu*veldamp/k
         dd_prefac = (1.0/(beta*beta) + 2.0*r_g*mu*mu/beta + mu**4)*f*f*dendamp**2
@@ -245,37 +237,26 @@ def mu_integrand(mu, p):
         dPdt2 = np.zeros((2, 2))
 
         if p[2] == 0:  # Differential w.r.t betaA
-            value = -2.0*(1.0/beta + r_g*mu*mu)*f*f*dendamp**2*Pmm/(beta*beta)
-            dPdt1[0, 0] = value
-            value = -(vv_prefac*f*r_g*dendamp*Pmt)/(beta*beta)
-            dPdt1[0, 1] = value
-            dPdt1[1, 0] = value
+            dPdt1[0, 0] = -2.0*(1.0/beta + r_g*mu**2)*f*f*(dendamp**2)*Pmm/(beta*beta)
+            dPdt1[0, 1] = -(vv_prefac*f*r_g*dendamp*Pmt)/(beta*beta)
+            dPdt1[1, 0] = -(vv_prefac*f*r_g*dendamp*Pmt)/(beta*beta)
         elif p[2] == 1:  # Differential w.r.t fsigma8
-            value = 2.0*(f/(beta*beta) + 2.0*f*r_g*mu*mu/beta + f*mu**4)*dendamp**2*Pmm/sigma8
-            dPdt1[0, 0] = value
-            value = 2.0*vv_prefac*(r_g/beta + mu**2)*dendamp*Pmt/sigma8
-            dPdt1[0, 1] = value
-            dPdt1[1, 0] = value
-            value = (2.0*P_uu)/(f*sigma8)
-            dPdt1[1, 1] = value
+            dPdt1[0, 0] = 2.0*(f/(beta*beta) + 2.0*f*r_g*mu*mu/beta + f*mu**4)*dendamp**2*Pmm/sigma8
+            dPdt1[0, 1] = 2.0*vv_prefac*(r_g/beta + mu**2)*dendamp*Pmt/sigma8
+            dPdt1[1, 0] = 2.0*vv_prefac*(r_g/beta + mu**2)*dendamp*Pmt/sigma8
+            dPdt1[1, 1] = (2.0*P_uu)/(f*sigma8)
         elif p[2] == 2:  # Differential w.r.t r_g
-            value = 2.0*(1.0/beta)*mu*mu*f*f*dendamp**2*Pmm
-            dPdt1[0, 0] = value
-            value = vv_prefac*(1.0/beta)*f*dendamp*Pmt
-            dPdt1[0, 1] = value
-            dPdt1[1, 0] = value
+            dPdt1[0, 0] = 2.0*(1.0/beta)*mu*mu*f*f*dendamp**2*Pmm
+            dPdt1[0, 1] = vv_prefac*(1.0/beta)*f*dendamp*Pmt
+            dPdt1[1, 0] = vv_prefac*(1.0/beta)*f*dendamp*Pmt
         elif p[2] == 3:  # Differential w.r.t sigma_g
-            value = -k*k*mu*mu*dendamp**2*sigma_g*P_gg
-            dPdt1[0, 0] = value
-            value = -0.5*k*k*mu*mu*dendamp**2*sigma_g*P_ug
-            dPdt1[0, 1] = value
-            dPdt1[1, 0] = value
+            dPdt1[0, 0] = -k*k*mu*mu*dendamp**2*sigma_g*P_gg
+            dPdt1[0, 1] = -0.5*k*k*mu*mu*dendamp**2*sigma_g*P_ug
+            dPdt1[1, 0] = -0.5*k*k*mu*mu*dendamp**2*sigma_g*P_ug
         elif p[2] == 4:  # Differential w.r.t sigma_u
-            value = P_ug*(k*np.cos(k*sigma_u)/np.sin(k*sigma_u) - 1.0/sigma_u)
-            dPdt1[0, 1] = value
-            dPdt1[1, 0] = value
-            value = 2.0*P_uu*(k*np.cos(k*sigma_u)/np.sin(k*sigma_u) - 1.0/sigma_u)
-            dPdt1[1, 1] = value
+            dPdt1[0, 1] = P_ug*(k*np.cos(k*sigma_u)/np.sin(k*sigma_u) - 1.0/sigma_u)
+            dPdt1[1, 0] = P_ug*(k*np.cos(k*sigma_u)/np.sin(k*sigma_u) - 1.0/sigma_u)
+            dPdt1[1, 1] = 2.0*P_uu*(k*np.cos(k*sigma_u)/np.sin(k*sigma_u) - 1.0/sigma_u)
 
         #Now for the second parameter
         if p[3] == 0:
@@ -299,15 +280,8 @@ def mu_integrand(mu, p):
             dPdt2[0, 1] = P_ug*(k*np.cos(k*sigma_u)/np.sin(k*sigma_u) - 1.0/sigma_u)
             dPdt2[1, 0] = P_ug*(k*np.cos(k*sigma_u)/np.sin(k*sigma_u) - 1.0/sigma_u)
             dPdt2[1, 1] = 2.0*P_uu*(k*np.cos(k*sigma_u)/np.sin(k*sigma_u) - 1.0/sigma_u)
-
+       
         r_sum = 0.0
-
-        # We need to do the overlapping and non-overlapping parts of the surveys separately
-        # Assuming the following variables are defined elsewhere in your code
-        # survey_area, nbararray, error_dist, r, error_rand, P_gg, P_uu, P_ug, dPdt1, dPdt2, deltar
-
-        r_sum = 0.0
-        result_sum = 0.0
 
         # We need to do the overlapping and non-overlapping parts of the surveys separately
         for surv in range(3):
@@ -319,12 +293,15 @@ def mu_integrand(mu, p):
                 # Set the nbar for each section.
                 if surv == 0:
                     n_g = nbararray[1][i]
-                elif surv == 1 or surv == 2:
+                elif surv == 1:
                     error_obs = 100.0 * error_dist * r
                     error_noise = error_rand**2 + error_obs**2
                     n_u = nbararray[0][i] / error_noise
-                    if surv == 2:
-                        n_g = nbararray[1][i]
+                elif surv == 2:
+                    error_obs = 100.0 * error_dist * r
+                    error_noise = error_rand**2 + error_obs**2
+                    n_u = nbararray[0][i] / error_noise
+                    n_g = nbararray[1][i]
 
                 if not (n_u > 0.0 or n_g > 0.0):
                     continue
@@ -339,20 +316,16 @@ def mu_integrand(mu, p):
                 iP[0, 1] = - n_g * n_u * P_ug
                 iP[1, 0] = - n_g * n_u * P_ug
 
-                # Finally we need to compute the Fisher integrand by summing over the inverse and differential matrices
-                for j in range(2):
-                    for m in range(2):
-                        for u in range(2):
-                            for q in range(2):
-                                surv_sum += dPdt1[j, q] * iP[q, u] * dPdt2[u, m] * iP[m, j]
+                # Finally we need to compute the Fisher integrand by summing over the inverse and differential matrices            
+                surv_sum = np.trace(dPdt1@iP@dPdt2@iP)
 
                 surv_sum /= det * det
                 surv_sum *= survey_area[surv]
                 r_sum += surv_sum
 
-            result_sum += r * r * deltar * r_sum
+        result_sum += r * r * deltar * r_sum
         
-        return result_sum
+    return result_sum
 
 def zeff_integrand(mu, p):
     numk = int(p[0])
@@ -386,11 +359,6 @@ def zeff_integrand(mu, p):
         r = rarray[i]
         deltar = deltararray[i]
 
-        dd_prefac=0.0
-        vv_prefac=0.0
-        P_gg=0.0
-        P_uu=0.0
-
         sigma8 = sigma80 * growtharray[i]
 
         # First lets calculate the relevant power spectra. Interpolate the power spectra linearly in redshift
@@ -399,8 +367,8 @@ def zeff_integrand(mu, p):
         Ptt = Ptt_spline(zval)
 
         Omz = Om*ezinv(zval)*ezinv(zval)*(1.0+zval)*(1.0+zval)*(1.0+zval)
-        f = pow(Omz, gammaval)
-        beta = f*beta0*growtharray[i]/pow(Om,0.55)
+        f = Omz**gammaval
+        beta = f*beta0*growtharray[i]/(Om**gammaval)
 
         vv_prefac  = 1.0e2*f*mu*veldamp/k
         dd_prefac = (1.0/(beta*beta) + 2.0*r_g*mu*mu/beta + mu*mu*mu*mu)*f*f*dendamp*dendamp
@@ -411,10 +379,19 @@ def zeff_integrand(mu, p):
         for surv in range(3):
             surv_sum = 0.0
             if survey_area[surv] > 0.0:
-                error_obs = 100.0*error_dist*r                              # Percentage error * distance * H0 in km/s (factor of 100.0 comes from hubble parameter)
-                error_noise = error_rand*error_rand + error_obs*error_obs   # Error_noise is in km^{2}s^{-2}
-                n_u = nbararray[0][i]/error_noise                   
-                n_g = nbararray[1][i]
+                n_g = 0
+                n_u = 0 
+                if surv == 0:
+                    n_g = nbararray[1][i] 
+                elif surv == 1:
+                    error_obs = 100.0*error_dist*r                              # Percentage error * distance * H0 in km/s (factor of 100.0 comes from hubble parameter)
+                    error_noise = error_rand*error_rand + error_obs*error_obs   # Error_noise is in km^{2}s^{-2}
+                    n_u = nbararray[0][i]/error_noise                   
+                elif surv == 2:
+                    error_obs = 100.0*error_dist*r                              # Percentage error * distance * H0 in km/s (factor of 100.0 comes from hubble parameter)
+                    error_noise = error_rand*error_rand + error_obs*error_obs   # Error_noise is in km^{2}s^{-2}
+                    n_u = nbararray[0][i]/error_noise
+                    n_g = nbararray[1][i]
 
                 value1 = n_g/(1.0 + n_g*P_gg)
                 value2 = n_u/(1.0 + n_u*P_uu)
@@ -467,7 +444,7 @@ for ziter in range(nziter):
     zmin_iter = ziter*zbinwidth + zmin
     zmax_iter = (ziter+1.0)*zbinwidth + zmin
 
-    rzmax = r_spline(zmax_iter)  # Assuming r_spline is a callable function
+    rzmax = r_spline(zmax_iter)
     kmin = np.pi/rzmax
 
     if verbosity > 0:
@@ -475,16 +452,11 @@ for ziter in range(nziter):
 
     k_sum1 = 0.0
     k_sum2 = 0.0
-    for numk in range(NK):
+    for numk in range(NK-1):
         
-        if numk != NK-1:
-            k = karray[numk]+0.5*deltakarray[numk]
-            deltak = deltakarray[numk]
-        
-        else:
-            k = karray[numk]
-            deltak = 0
-            
+        k = karray[numk]+0.5*deltakarray[numk]
+        deltak = deltakarray[numk]
+                
         if k < kmin or k > kmax:
             continue
 
@@ -495,18 +467,21 @@ for ziter in range(nziter):
         k_sum2 += k*k*deltak
 
     z_eff = k_sum1/k_sum2
+
     if verbosity > 0:
         print(f"Effective redshift z_eff = {z_eff}")
 
-    growth_eff = growth_spline(z_eff)  # Assuming growth_spline is a callable function
+    growth_eff = growth_spline(z_eff)  
 
     Fisher = np.zeros((nparams, nparams))
     for i in range(nparams):
         for j in range(i, nparams):
             k_sum = 0.0
             for numk in range(NK-1):
+
                 k = karray[numk]+0.5*deltakarray[numk]
                 deltak = deltakarray[numk]
+                
                 if k < kmin or k > kmax:
                     continue
 
@@ -528,11 +503,11 @@ for ziter in range(nziter):
     Covariance = sc.linalg.inv(Fisher)
 
     sigma8 = sigma80 * growth_eff
-    Omz = Om*ezinv(z_eff)**2*(1.0+z_eff)**3
+    Omz = Om*(ezinv(z_eff)**2)*(1.0+z_eff)**3
     f = Omz**gammaval
-    beta = f*beta0*growth_eff/Om**0.55
+    beta = f*beta0*growth_eff/(Om**gammaval)
 
     if verbosity == 0:
         for i in range(nparams):
             if Data[i] == 1:
-                print(f"{zmin_iter}  {zmax_iter}  {z_eff}  {f*sigma8}  {100.0*np.sqrt(Covariance[i, i])/(f*sigma8)}")
+                print(f"{zmin_iter:.6f}  {zmax_iter:.6f}  {z_eff:.6f}  {f*sigma8:.6f}  {100.0*np.sqrt(Covariance[i, i])/(f*sigma8):.6f}")
