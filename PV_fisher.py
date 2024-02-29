@@ -65,12 +65,12 @@ def ezinv(x):
     return 1.0 / np.sqrt(Om * (1.0 + x) * (1.0 + x) * (1.0 + x) + (1.0 - Om))
 
 def rz(red):
-    result,error = sc.integrate.quad(ezinv, 0, red)
+    result,error = sc.integrate.quad(ezinv, 0, red, limit=1000)
     return c * result / 100.0
 
     
 def growthfunc(x):
-    red = 1.0/x - 1.0
+    red = (1.0/x) - 1.0
     Omz = Om * ezinv(red) * ezinv(red) / (x * x * x)
     f = np.power(Omz, gammaval)
     return f / x
@@ -78,27 +78,32 @@ def growthfunc(x):
 
 def growthz(red):
     a = 1.0 / (1.0 + red)
-    result,error = sc.integrate.quad(growthfunc, a, 1.0)
+    result,error = sc.integrate.quad(growthfunc, a, 1.0, limit=1000)
     return np.exp(-result)
 
 def read_power():
-    global pkkmax, pkkmin, pmmarray, pmtarray, pttarray, nzin
 
-    pmmarray = []
-    pmtarray = []
-    pttarray = []
+    pmmarray = None
+    pmtarray = None
+    pttarray = None
 
+    
+    
     for i in range(nzin):
         Pvel_file_in = f"{Pvel_file}_z0p{int(100.0 * zin[i]):02d}.dat"
-
-        try:
+        k,pmm,pmt,ptt = np.loadtxt(Pvel_file_in,unpack=True)
+        if pmmarray is None:
+            pmmarray = np.zeros((nzin,k.size))
+            pmtarray = np.zeros((nzin,k.size))
+            pttarray = np.zeros((nzin,k.size))
+        """try:
             with open(Pvel_file_in, "r") as fp:
                 lines = fp.readlines()
         except IOError:
             print(f"\nERROR: Can't open power file '{Pvel_file_in}'.\n\n")
             exit(0)
-
-        data = [list(map(float, line.split())) for line in lines if not line.startswith("#")]
+"""
+        """data = [list(map(float, line.split())) for line in lines if not line.startswith("#")]
         NK = len(data)
 
         if i == 0:
@@ -115,19 +120,18 @@ def read_power():
                 karray[j] = tk
             pttarray[i][j] = pkvel
             pmmarray[i][j] = pkdelta
-            pmtarray[i][j] = pkdeltavel
+            pmtarray[i][j] = pkdeltavel"""
 
-    for i in range(NK - 1):
-        deltakarray[i] = karray[i + 1] - karray[i]
+    deltakarray = np.ediff1d(k)
 
-    pkkmin = karray[0]
-    pkkmax = karray[NK - 1]
+    pkkmin = k[0]
+    pkkmax = k[-1]
 
     if pkkmax < kmax:
         print("ERROR: The maximum k in the input power spectra is less than k_max")
         exit(0)
 
-    return NK, karray, deltakarray, pmmarray, pmtarray, pttarray, pkkmin, pkkmax
+    return k.size, k, deltakarray, pmmarray, pmtarray, pttarray, pkkmin, pkkmax
 
 
 def read_nz():
@@ -151,7 +155,6 @@ def read_nz():
                 if nsamp == 0:
                     zinarray[i] = tz
                 nbararray[nsamp][i] = 1.0e-6 * tnbar
-            print(zinarray)
             
     if NRED[1] != NRED[0]:
         raise ValueError("The number of redshift bins for each sample must match")
@@ -184,6 +187,7 @@ def read_nz():
 
     return r_spline, growth_spline, NRED, zarray, rarray, deltararray, growtharray, nbararray
 
+
 def mu_integrand(mu, p):
 
     numk = int(p[0])
@@ -191,16 +195,20 @@ def mu_integrand(mu, p):
     zminval = p[4]
     zmaxval = p[5]
 
-    Pmm_array = np.array([pmmarray[j][numk] for j in range(nzin)])
+    """Pmm_array = np.array([pmmarray[j][numk] for j in range(nzin)])
     Pmt_array = np.array([pmtarray[j][numk] for j in range(nzin)])
     Ptt_array = np.array([pttarray[j][numk] for j in range(nzin)])
 
     Pmm_spline = sc.interpolate.CubicSpline(zin, Pmm_array)
     Pmt_spline = sc.interpolate.CubicSpline(zin, Pmt_array)
-    Ptt_spline = sc.interpolate.CubicSpline(zin, Ptt_array)
+    Ptt_spline = sc.interpolate.CubicSpline(zin, Ptt_array)"""
+
+    Pmm_spline = p[6]
+    Pmt_spline = p[7]
+    Ptt_spline = p[8]
 
     dendamp = np.sqrt(1.0 / (1.0 + 0.5 * (k * k * mu * mu * sigma_g * sigma_g)))
-    veldamp = np.sinc(k * sigma_u)
+    veldamp = np.sinc(k * sigma_u/np.pi)
 
     result_sum = 0.0
     for i in range(NRED[0]):
@@ -223,7 +231,7 @@ def mu_integrand(mu, p):
 
         Omz = Om*(ezinv(zval)**2)*(1.0+zval)**3
         f = Omz**gammaval
-        beta = f*beta0*growtharray[i]/(Om**0.55)
+        beta = f*beta0*growtharray[i]/(Om**gammaval)
 
         vv_prefac  = 1.0e2*f*mu*veldamp/k
         dd_prefac = (1.0/(beta*beta) + 2.0*r_g*mu*mu/beta + mu**4)*f*f*dendamp**2
@@ -241,12 +249,12 @@ def mu_integrand(mu, p):
             dPdt1[0, 1] = -(vv_prefac*f*r_g*dendamp*Pmt)/(beta*beta)
             dPdt1[1, 0] = -(vv_prefac*f*r_g*dendamp*Pmt)/(beta*beta)
         elif p[2] == 1:  # Differential w.r.t fsigma8
-            dPdt1[0, 0] = 2.0*(f/(beta*beta) + 2.0*f*r_g*mu*mu/beta + f*mu**4)*dendamp**2*Pmm/sigma8
+            dPdt1[0, 0] = 2.0*(f/(beta*beta) + 2.0*f*r_g*mu*mu/beta + f*mu**4)*(dendamp**2)*Pmm/sigma8
             dPdt1[0, 1] = 2.0*vv_prefac*(r_g/beta + mu**2)*dendamp*Pmt/sigma8
             dPdt1[1, 0] = 2.0*vv_prefac*(r_g/beta + mu**2)*dendamp*Pmt/sigma8
             dPdt1[1, 1] = (2.0*P_uu)/(f*sigma8)
         elif p[2] == 2:  # Differential w.r.t r_g
-            dPdt1[0, 0] = 2.0*(1.0/beta)*mu*mu*f*f*dendamp**2*Pmm
+            dPdt1[0, 0] = 2.0*(1.0/beta)*mu*mu*f*f*(dendamp**2)*Pmm
             dPdt1[0, 1] = vv_prefac*(1.0/beta)*f*dendamp*Pmt
             dPdt1[1, 0] = vv_prefac*(1.0/beta)*f*dendamp*Pmt
         elif p[2] == 3:  # Differential w.r.t sigma_g
@@ -285,7 +293,6 @@ def mu_integrand(mu, p):
 
         # We need to do the overlapping and non-overlapping parts of the surveys separately
         for surv in range(3):
-            surv_sum = 0.0
             if survey_area[surv] > 0.0:
                 n_g = 0.0
                 n_u = 0.0
@@ -343,7 +350,7 @@ def zeff_integrand(mu, p):
         Ptt_spline = sc.interpolate.CubicSpline(zin, Ptt_array)
 
     dendamp = np.sqrt(1.0/(1.0+0.5*(k*k*mu*mu*sigma_g*sigma_g)))     # This is unitless
-    veldamp = np.sinc(k*sigma_u)                                     # This is unitless
+    veldamp = np.sinc(k*sigma_u/np.pi)                                     # This is unitless
 
     dVeff = 0.0
     zdVeff = 0.0
@@ -461,7 +468,7 @@ for ziter in range(nziter):
             continue
 
         params = [numk, k, zmin_iter, zmax_iter]
-        result, error = sc.integrate.quad(zeff_integrand, 0.0, 1.0, args=(params,))
+        result, error = sc.integrate.quad(zeff_integrand, 0.0, 1.0, args=(params,), limit=1000)
         
         k_sum1 += k*k*deltak*result
         k_sum2 += k*k*deltak
@@ -478,15 +485,21 @@ for ziter in range(nziter):
         for j in range(i, nparams):
             k_sum = 0.0
             for numk in range(NK-1):
-
+                
                 k = karray[numk]+0.5*deltakarray[numk]
                 deltak = deltakarray[numk]
                 
                 if k < kmin or k > kmax:
                     continue
+                
+    
 
-                params = [numk, k, Data[i], Data[j], zmin_iter, zmax_iter]
-                result,error = sc.integrate.quad(mu_integrand, 0.0, 1.0, args=(params,))
+                Pmm_spline = sc.interpolate.CubicSpline(zin, pmmarray[:,numk])
+                Pmt_spline = sc.interpolate.CubicSpline(zin, pmtarray[:,numk])
+                Ptt_spline = sc.interpolate.CubicSpline(zin, pttarray[:,numk])
+
+                params = [numk, k, Data[i], Data[j], zmin_iter, zmax_iter,Pmm_spline,Pmt_spline,Ptt_spline]
+                result,error = sc.integrate.quad(mu_integrand, 0.0, 1.0, args=(params,), limit=1000)
 
                 k_sum += k*k*deltak*result
 
